@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — To'lovlarni ko'rish</title>
+    <style>
+        :root { color-scheme: dark; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 24px;
+        }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .card { background: #111827; border: 1px solid #334155; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+        .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .item { background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 14px; cursor: pointer; }
+        .item.active { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,0.25); }
+        .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+        button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; font-weight: 700; }
+        .btn-approve { background: #16a34a; color: white; }
+        .btn-reject { background: #dc2626; color: white; }
+        .btn-secondary { background: #334155; color: white; }
+        input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: white; }
+        img { width: 100%; max-width: 420px; border-radius: 12px; border: 1px solid #475569; margin-top: 10px; }
+        .muted { color: #94a3b8; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Admin panel</h1>
+            <p class="muted">To'lov cheklari va tasdiqlash uchun panel.</p>
+            <form id="login-form">
+                <label for="admin-key">Admin parol</label>
+                <input id="admin-key" type="password" placeholder="Parolni kiriting" required>
+                <div class="controls">
+                    <button class="btn-secondary" type="submit">Kirish</button>
+                    <button class="btn-secondary" type="button" id="logout-btn">Chiqish</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="admin-content" class="hidden">
+            <div class="card">
+                <h2>Kutilayotgan to'lovlar</h2>
+                <div id="deposit-list" class="grid"></div>
+            </div>
+            <div class="card">
+                <h3 id="selected-title">Chekni tanlang</h3>
+                <div id="selected-details" class="muted"></div>
+                <div id="receipt-preview"></div>
+                <div class="controls">
+                    <button class="btn-approve hidden" id="approve-btn">Tasdiqlash ✅</button>
+                    <button class="btn-reject hidden" id="reject-btn">Rad etish ❌</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('login-form');
+        const adminContent = document.getElementById('admin-content');
+        const depositList = document.getElementById('deposit-list');
+        const selectedTitle = document.getElementById('selected-title');
+        const selectedDetails = document.getElementById('selected-details');
+        const receiptPreview = document.getElementById('receipt-preview');
+        const approveBtn = document.getElementById('approve-btn');
+        const rejectBtn = document.getElementById('reject-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        let currentKey = '';
+        let deposits = [];
+        let selectedId = null;
+
+        function getStoredKey() {
+            return localStorage.getItem('adminKey') || '';
+        }
+
+        function setAuth(key) {
+            currentKey = key;
+            localStorage.setItem('adminKey', key);
+            form.classList.add('hidden');
+            adminContent.classList.remove('hidden');
+        }
+
+        function clearAuth() {
+            currentKey = '';
+            localStorage.removeItem('adminKey');
+            adminContent.classList.add('hidden');
+            form.classList.remove('hidden');
+            depositList.innerHTML = '';
+            selectedTitle.textContent = 'Chekni tanlang';
+            selectedDetails.textContent = '';
+            receiptPreview.innerHTML = '';
+            approveBtn.classList.add('hidden');
+            rejectBtn.classList.add('hidden');
+        }
+
+        async function loadDeposits() {
+            if (!currentKey) return;
+            const res = await fetch(`/api/admin/deposits?key=${encodeURIComponent(currentKey)}`);
+            if (!res.ok) {
+                alert('Parol noto\'g\'ri yoki ruxsat yo\'q.');
+                clearAuth();
+                return;
+            }
+            deposits = await res.json();
+            depositList.innerHTML = '';
+            if (!deposits.length) {
+                depositList.innerHTML = '<div class="muted">Hozirda kutilayotgan to\'lovlar yo\'q.</div>';
+                return;
+            }
+            deposits.forEach((deposit) => {
+                const div = document.createElement('div');
+                div.className = 'item';
+                if (selectedId === deposit.id) div.classList.add('active');
+                div.innerHTML = `
+                    <strong>#${deposit.id}</strong><br>
+                    ${deposit.user_name || 'Noma\'lum'}<br>
+                    <span class="muted">${Number(deposit.amount).toLocaleString('uz-UZ')} UZS</span><br>
+                    <span class="muted">${deposit.payment_method || 'manual'}</span>
+                `;
+                div.onclick = () => selectDeposit(deposit.id);
+                depositList.appendChild(div);
+            });
+            if (!selectedId && deposits.length) selectDeposit(deposits[0].id);
+        }
+
+        function selectDeposit(id) {
+            const deposit = deposits.find((d) => d.id === id);
+            if (!deposit) return;
+            selectedId = id;
+            selectedTitle.textContent = `To'lov #${deposit.id}`;
+            selectedDetails.innerHTML = `
+                <strong>Foydalanuvchi:</strong> ${deposit.user_name || 'Noma\'lum'}<br>
+                <strong>User ID:</strong> ${deposit.user_id}<br>
+                <strong>Summa:</strong> ${Number(deposit.amount).toLocaleString('uz-UZ')} UZS<br>
+                <strong>To\'lov turi:</strong> ${deposit.payment_method || 'manual'}<br>
+                <strong>Vaqt:</strong> ${deposit.created_at}
+            `;
+            receiptPreview.innerHTML = `<img src="/api/admin/deposits/${deposit.id}/receipt?key=${encodeURIComponent(currentKey)}" alt="Receipt">`;
+            approveBtn.classList.remove('hidden');
+            rejectBtn.classList.remove('hidden');
+            approveBtn.onclick = () => actionDeposit('approve');
+            rejectBtn.onclick = () => actionDeposit('reject');
+            renderListSelection();
+        }
+
+        function renderListSelection() {
+            [...depositList.children].forEach((child) => {
+                const id = Number(child.textContent.match(/#(\d+)/)?.[1]);
+                child.classList.toggle('active', id === selectedId);
+            });
+        }
+
+        async function actionDeposit(action) {
+            if (!selectedId) return;
+            const url = `/api/admin/deposits/${selectedId}/${action}?key=${encodeURIComponent(currentKey)}`;
+            const res = await fetch(url, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.detail || 'Amal bajarilmadi');
+                return;
+            }
+            alert(data.message || 'Yakunlandi');
+            await loadDeposits();
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const key = document.getElementById('admin-key').value.trim();
+            if (!key) return;
+            setAuth(key);
+            await loadDeposits();
+        });
+
+        logoutBtn.addEventListener('click', clearAuth);
+
+        const initialKey = getStoredKey();
+        if (initialKey) {
+            setAuth(initialKey);
+            loadDeposits();
+        }
+    </script>
+</body>
+</html>
